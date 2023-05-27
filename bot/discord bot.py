@@ -4,6 +4,8 @@ import requests
 import logging
 import re
 import asyncio
+import json
+import time
 from keep_alive import keep_alive
 
 # Set up logging configuration
@@ -16,8 +18,8 @@ client = discord.Client(intents=intents)
 # Store the last commit hash for each repository
 last_commit_hashes = {}
 
-# Dictionary to store scheduled repositories
-scheduled_repositories = {}
+# File to store scheduled repositories
+SCHEDULED_REPOSITORIES_FILE = "scheduled_repositories.json"
 
 
 def get_latest_commit(repository):
@@ -62,6 +64,8 @@ async def send_commit_info(repository, channel):
         await channel.send(f'Failed to retrieve commit information for {repository}. Please check the repository name and try again.')
 
 
+RATE_LIMIT_DELAY = 10  # Delay in seconds between checking each repository
+
 async def check_commit_updates():
     await client.wait_until_ready()
     while not client.is_closed():
@@ -69,9 +73,18 @@ async def check_commit_updates():
         for repository, channel_id in scheduled_repositories.items():
             channel = client.get_channel(channel_id)
             await send_commit_info(repository, channel)
+            time.sleep(RATE_LIMIT_DELAY)  # Add a delay to implement rate limiting
 
         # Sleep for 1 minute before checking for updates again
         await asyncio.sleep(60)
+
+
+async def save_scheduled_repositories():
+    try:
+        with open(SCHEDULED_REPOSITORIES_FILE, 'w') as file:
+            json.dump(scheduled_repositories, file)
+    except IOError:
+        logging.error('Failed to save scheduled repositories')
 
 
 @client.event
@@ -79,6 +92,9 @@ async def on_ready():
     print(f'Logged in as {client.user}')
     logging.info(f'Logged in as {client.user}')
     client.loop.create_task(check_commit_updates())
+
+    # Save the scheduled repositories before the bot shuts down
+    await save_scheduled_repositories()
 
 
 @client.event
@@ -136,6 +152,15 @@ async def on_message(message):
                     f'Please check the repository name and try again.'
                 )
 
+
+# Load scheduled repositories from file (if available)
+scheduled_repositories = {}
+if os.path.isfile(SCHEDULED_REPOSITORIES_FILE):
+    try:
+        with open(SCHEDULED_REPOSITORIES_FILE, 'r') as file:
+            scheduled_repositories = json.load(file)
+    except IOError:
+        logging.error('Failed to load scheduled repositories')
 
 # Keep the bot alive
 keep_alive()
