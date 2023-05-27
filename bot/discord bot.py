@@ -22,7 +22,8 @@ SCHEDULED_REPOSITORIES_FILE = "scheduled_repositories.json"
 def get_latest_commit(repository):
     # Make a request to the GitHub API to get the latest commit information for the specified repository
     try:
-        response = requests.get(f'https://api.github.com/repos/{repository}/commits')
+        response = requests.get(
+            f'https://api.github.com/repos/{repository}/commits')
         response.raise_for_status()
         data = response.json()
 
@@ -73,10 +74,14 @@ async def check_commit_updates():
     await client.wait_until_ready()
     while not client.is_closed():
         # Check for updates in all scheduled repositories
-        for repository, channel_id in scheduled_repositories.items():
-            channel = client.get_channel(channel_id)
-            await send_commit_info(repository, channel)
-            await asyncio.sleep(RATE_LIMIT_DELAY)  # Use asyncio.sleep instead of time.sleep
+        for repository, channel_ids in scheduled_repositories.items():
+            if isinstance(channel_ids, int):
+                channel_ids = [channel_ids]  # Convert single channel ID to a list
+
+            for channel_id in channel_ids:
+                channel = client.get_channel(channel_id)
+                await send_commit_info(repository, channel)
+                await asyncio.sleep(RATE_LIMIT_DELAY)  # Use asyncio.sleep instead of time.sleep
 
         # Save the scheduled repositories to file
         await save_scheduled_repositories()
@@ -104,14 +109,15 @@ async def on_ready():
 
 
 @client.event
+@client.event
+@client.event
 async def on_message(message):
     # Ignore messages sent by the bot itself
     if message.author == client.user:
         return
 
     # Check if the message content starts with the command prefix or bot mention
-    if message.content.startswith('!latest_commit') or client.user.mentioned_in(
-            message):
+    if message.content.startswith('!latest_commit') or client.user.mentioned_in(message):
         # Check if the message was sent in a guild
         if isinstance(message.channel, discord.TextChannel):
             # Parse the command arguments
@@ -140,28 +146,34 @@ async def on_message(message):
                 await message.channel.send(f'Channel {channel_name} not found')
                 return
 
-            # Send a test message to the channel
-            await channel.send('Checking if the repository and channel are valid...')
-
-            # Get the latest commit information for the specified repository
-            commit_info = get_latest_commit(repository)
-            if commit_info is not None:
-                # Store the repository and channel information in the scheduled_repositories dictionary
-                scheduled_repositories[repository] = channel.id
-                last_commit_hashes[
-                    repository] = None  # Initialize the last commit hash as None
-
-                # Save the scheduled repositories to file
-                await save_scheduled_repositories()
-
-                # Send a confirmation message to the user
-                await message.channel.send(
-                    f'Successfully scheduled commit information for {repository} '
-                    f'to be sent to {channel_name} when there are new commits')
+            # Check if the repository is already being tracked
+            if repository in scheduled_repositories:
+                channel_ids = scheduled_repositories[repository]
+                if isinstance(channel_ids, int):
+                    channel_ids = [channel_ids]
             else:
+                # Create a new entry for the repository and initialize the list of tracked channels
+                channel_ids = []
+
+            if channel.id in channel_ids:
                 await message.channel.send(
-                    f'Failed to retrieve commit information for {repository}. '
-                    f'Please check the repository name and try again.')
+                    f'The repository {repository} is already being tracked in {channel_name}'
+                )
+                return
+
+            # Add the channel ID to the list of tracked channels for the repository
+            channel_ids.append(channel.id)
+            scheduled_repositories[repository] = channel_ids
+
+            # Save the scheduled repositories to file
+            await save_scheduled_repositories()
+
+            # Send a confirmation message to the user
+            await message.channel.send(
+                f'Successfully scheduled commit information for {repository} '
+                f'to be sent to {channel_name} when there are new commits')
+
+
 
 
 def load_scheduled_repositories():
@@ -176,8 +188,6 @@ def load_scheduled_repositories():
                 })  # Initialize last commit hashes
         except IOError:
             logging.error('Failed to load scheduled repositories')
-    else:
-        scheduled_repositories = {}  # Initialize an empty dictionary if the file doesn't exist
 
 
 # Store the last commit hash for each repository
