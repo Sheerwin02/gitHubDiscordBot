@@ -15,9 +15,6 @@ intents = discord.Intents.default()
 intents.message_content = True  # Enable message content intent
 client = discord.Client(intents=intents)
 
-# Store the last commit hash for each repository
-last_commit_hashes = {}
-
 # File to store scheduled repositories
 SCHEDULED_REPOSITORIES_FILE = "scheduled_repositories.json"
 
@@ -75,6 +72,9 @@ async def check_commit_updates():
             await send_commit_info(repository, channel)
             time.sleep(RATE_LIMIT_DELAY)  # Add a delay to implement rate limiting
 
+        # Save the scheduled repositories to file
+        await save_scheduled_repositories()
+
         # Sleep for 1 minute before checking for updates again
         await asyncio.sleep(60)
 
@@ -93,9 +93,8 @@ async def on_ready():
     logging.info(f'Logged in as {client.user}')
     client.loop.create_task(check_commit_updates())
 
-    # Save the scheduled repositories before the bot shuts down
-    await save_scheduled_repositories()
-
+    # Load scheduled repositories from file (if available)
+    load_scheduled_repositories()
 
 @client.event
 async def on_message(message):
@@ -141,6 +140,9 @@ async def on_message(message):
                 scheduled_repositories[repository] = channel.id
                 last_commit_hashes[repository] = None  # Initialize the last commit hash as None
 
+                # Save the scheduled repositories to file
+                await save_scheduled_repositories()
+
                 # Send a confirmation message to the user
                 await message.channel.send(
                     f'Successfully scheduled commit information for {repository} '
@@ -153,14 +155,23 @@ async def on_message(message):
                 )
 
 
+def load_scheduled_repositories():
+    global scheduled_repositories
+    if os.path.isfile(SCHEDULED_REPOSITORIES_FILE):
+        try:
+            with open(SCHEDULED_REPOSITORIES_FILE, 'r') as file:
+                scheduled_repositories = json.load(file)
+                last_commit_hashes.update({repo: None for repo in scheduled_repositories})  # Initialize last commit hashes
+        except IOError:
+            logging.error('Failed to load scheduled repositories')
+
+
+# Store the last commit hash for each repository
+last_commit_hashes = {}
+
 # Load scheduled repositories from file (if available)
 scheduled_repositories = {}
-if os.path.isfile(SCHEDULED_REPOSITORIES_FILE):
-    try:
-        with open(SCHEDULED_REPOSITORIES_FILE, 'r') as file:
-            scheduled_repositories = json.load(file)
-    except IOError:
-        logging.error('Failed to load scheduled repositories')
+load_scheduled_repositories()
 
 # Keep the bot alive
 keep_alive()
