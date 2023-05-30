@@ -1,2 +1,2 @@
 # gitHubDiscordBot
-A discord bot that will update github commit and send it in text channel. Testing3
+A discord bot that will update github commit and send it in text channel. Testing4
